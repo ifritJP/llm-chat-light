@@ -82,7 +82,7 @@
   :type 'string
   :group 'llm-chat-light)
 
-(defcustom llm-chat-light-model "llmfan46/gemma-4-e2b-it-ultra-uncensored-heretic"
+(defcustom llm-chat-light-model "unsloth/gemma-4-12b-it"
   "The model name to use."
   :type 'string
   :group 'llm-chat-light)
