@@ -26,6 +26,8 @@
 
 ## インストール方法
 
+### 手動インストール
+
 `llm-chat-light.el` が置かれているディレクトリを `load-path` に追加し、パッケージをロードします。
 
 ```elisp
@@ -37,6 +39,20 @@
 
 ```elisp
 M-x llm-chat-light-start
+```
+
+### `use-package` によるインストール (Emacs 29以上)
+
+Emacs 29以上で標準搭載された `package-vc` 機能を利用して、GitHub から直接クローンしてインストールおよび設定を行うことも可能です。
+
+```elisp
+(use-package llm-chat-light
+  :vc (:url "https://github.com/ifritJP/llm-chat-light"
+       :rev :newest)
+  :commands (llm-chat-light-start)
+  :bind ("C-c L" . llm-chat-light-start)
+  :custom
+  (llm-chat-light-model "unsloth/gemma-4-12b-it"))
 ```
 
 ---

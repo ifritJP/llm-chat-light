@@ -26,6 +26,8 @@ It features a hybrid architecture combining a native Emacs Lisp UI (extending `c
 
 ## Installation
 
+### Manual Installation
+
 Add the directory containing `llm-chat-light.el` to your load-path and require the package:
 
 ```elisp
@@ -37,6 +39,20 @@ To run a session, invoke the interactive command:
 
 ```elisp
 M-x llm-chat-light-start
+```
+
+### Installation via `use-package` (Emacs 29+)
+
+You can install it directly from GitHub using the built-in `package-vc` feature in Emacs 29:
+
+```elisp
+(use-package llm-chat-light
+  :vc (:url "https://github.com/ifritJP/llm-chat-light"
+       :rev :newest)
+  :commands (llm-chat-light-start)
+  :bind ("C-c L" . llm-chat-light-start)
+  :custom
+  (llm-chat-light-model "unsloth/gemma-4-12b-it"))
 ```
 
 ---
