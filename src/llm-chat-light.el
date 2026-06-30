@@ -77,8 +77,14 @@
   :type '(repeat string)
   :group 'llm-chat-light)
 
-(defcustom llm-chat-light-api-base "http://localhost:1234/v1"
+(defcustom llm-chat-light-api-base "http://localhost:1234/"
   "The API base URL for the LLM server."
+  :type 'string
+  :group 'llm-chat-light)
+
+
+(defcustom llm-chat-light-api-key (or (getenv "LLM_API_KEY") "lm-studio")
+  "LLM API KEY"
   :type 'string
   :group 'llm-chat-light)
 
@@ -141,6 +147,8 @@ If relative, resolved against the project root."
     (define-key map (kbd "C-c C-d") 'llm-chat-light-delete-session)
     (define-key map (kbd "C-c C-m") 'llm-chat-light-change-model)
     (define-key map (kbd "C-c C-r") 'llm-chat-light-select-reasoning)
+    (define-key map (kbd "C-c C-k") 'llm-chat-light-cli-restart)
+    (define-key map (kbd "C-c C-n") 'llm-chat-light-session-clear)
     (define-key map (kbd "RET") 'llm-chat-light-send-input)
     (define-key map (kbd "C-m") 'llm-chat-light-send-input)
     map)
@@ -173,12 +181,40 @@ ignore the send action and insert a newline instead."
   (interactive)
   (let ((proc (get-buffer-process (current-buffer))))
     (if (and proc (eq (process-status proc) 'run))
-        (if (y-or-n-p "Interrupt the active LLM response generation? ")
+        (if (yes-or-no-p "Interrupt the active LLM response generation? ")
             (progn
               (comint-interrupt-subjob)
               (message "LLM response generation interrupted."))
           (message "Interruption canceled."))
       (message "No active process is running."))))
+
+(defun llm-chat-light-cli-restart ()
+  "Kill the current cli.py process and restart it, keeping session history."
+  (interactive)
+  (let ((session-file llm-chat-light-session-file))
+    (unless session-file
+      (user-error "No session file associated with this buffer"))
+    (when (yes-or-no-p "Restart CLI? (session history is kept) ")
+      (let ((proc (get-buffer-process (current-buffer))))
+        (when proc
+          (delete-process proc)))
+      (llm-chat-light-start session-file))))
+
+(defun llm-chat-light-session-clear ()
+  "Clear session history, wipe the buffer display, and restart from scratch."
+  (interactive)
+  (let ((session-file llm-chat-light-session-file))
+    (unless session-file
+      (user-error "No session file associated with this buffer"))
+    (when (yes-or-no-p "Clear session history and restart from scratch? ")
+      (let ((proc (get-buffer-process (current-buffer))))
+        (when proc
+          (delete-process proc)))
+      (when (file-exists-p session-file)
+        (delete-file session-file))
+      (let ((inhibit-read-only t))
+        (erase-buffer))
+      (llm-chat-light-start session-file))))
 
 (defun llm-chat-light-delete-session ()
   "Confirm and delete the current session JSON file, kill process, and buffer."
@@ -186,7 +222,7 @@ ignore the send action and insert a newline instead."
   (let ((session-file llm-chat-light-session-file)
         (buf (current-buffer)))
     (if (and session-file (file-exists-p session-file))
-        (if (y-or-n-p (format "Delete the current session file %s? " (file-name-nondirectory session-file)))
+        (if (yes-or-no-p (format "Delete the current session file %s? " (file-name-nondirectory session-file)))
             (let ((proc (get-buffer-process buf)))
               ;; Kill process if active
               (when (and proc (eq (process-status proc) 'run))
@@ -205,6 +241,7 @@ ignore the send action and insert a newline instead."
          (default-directory root)
          (process-environment (copy-sequence process-environment)))
     (setenv "LLM_API_BASE" llm-chat-light-api-base)
+    (setenv "LLM_API_KEY" llm-chat-light-api-key)
     (message "llm-chat-light-fetch-models: Environment variable LLM_API_BASE=%s has been set." llm-chat-light-api-base)
     (let* ((cmd-args (append llm-chat-light-arguments '("--list-models")))
            (output (with-temp-buffer
@@ -295,9 +332,12 @@ ignore the send action and insert a newline instead."
                               (propertize "[C-c C-m]" 'face 'llm-chat-light-key-sequence) " Change Model / "
                               (propertize "[C-c C-r]" 'face 'llm-chat-light-key-sequence) " Select Reasoning | "
                               (propertize "[C-c C-d]" 'face 'llm-chat-light-key-sequence) " Delete Session | "
+                              (propertize "[C-c C-k]" 'face 'llm-chat-light-key-sequence) " CLI Restart | "
+                              (propertize "[C-c C-n]" 'face 'llm-chat-light-key-sequence) " Session Clear | "
                               (propertize "[C-c C-c]" 'face 'llm-chat-light-key-sequence) " Kill Request")))
   (when (fboundp 'tab-line-mode)
-    (tab-line-mode 1)
+    (let ((inhibit-message t))
+      (tab-line-mode 1))
     (face-remap-add-relative 'tab-line 'header-line))
   (setq-local header-line-format
               '(:eval (format "%s | Reasoning: %s | Active Model: %s"
@@ -316,7 +356,10 @@ ignore the send action and insert a newline instead."
   "Filter out token usage output and update the mode-line."
   (let ((inhibit-read-only t))
     (save-excursion
-      (goto-char (or comint-last-output-start (point-min)))
+      (goto-char (or (and (markerp comint-last-output-start)
+                          (marker-buffer comint-last-output-start)
+                          comint-last-output-start)
+                     (point-min)))
       (while (re-search-forward "\\[TokenUsage: \\([0-9]+\\), \\([0-9]+\\), \\([0-9]+\\)\\]\n?" nil t)
         (let* ((prompt-tokens (match-string 1))
                (completion-tokens (match-string 2))
@@ -333,7 +376,10 @@ ignore the send action and insert a newline instead."
   "Colorize the assistant response in the comint buffer."
   (let ((inhibit-read-only t))
     (save-excursion
-      (goto-char (point-min))
+      (goto-char (or (and (markerp comint-last-output-start)
+                          (marker-buffer comint-last-output-start)
+                          comint-last-output-start)
+                     (point-min)))
       (beginning-of-line)
       (while (re-search-forward "^Assistant> " nil t)
         (let ((start (match-beginning 0))
@@ -342,7 +388,6 @@ ignore the send action and insert a newline instead."
             (when (re-search-forward "^\\(?:llm-chat\\|Assistant\\)> " nil t)
               (setq end (match-beginning 0))))
           (when (< start end)
-            (message "llm-chat-light: colorizing assistant response from %d to %d" start end)
             (add-text-properties start end '(face llm-chat-light-assistant font-lock-face llm-chat-light-assistant)))
           (goto-char end))))))
 
@@ -415,7 +460,7 @@ This will switch to the session's buffer, starting it if not already running."
             (unless (string-empty-p clean-prompt)
               (if (null history)
                   (setq history (list `((role . "system") (content . ,clean-prompt))))
-                (if (not (eq (cdr (assoc 'role (car history))) 'system))
+                (if (not (equal (cdr (assoc 'role (car history))) "system"))
                     (setq history (cons `((role . "system") (content . ,clean-prompt)) history))
                   (setcar history `((role . "system") (content . ,clean-prompt))))))))
       (llm-chat-light-write-session session-file history))
@@ -426,6 +471,7 @@ This will switch to the session's buffer, starting it if not already running."
     (setenv "LLM_SYSTEM_PROMPT" llm-chat-light-system-prompt)
     (setenv "LLM_SESSION_FILE" session-file)
     (setenv "PYTHONUNBUFFERED" "1")
+    (setenv "LLM_API_KEY" llm-chat-light-api-key)
     (with-current-buffer buffer
       (unless (comint-check-proc buffer)
         (let ((default-directory root))

@@ -96,9 +96,8 @@ def get_available_models(client, api_key):
     return []
 
 def main():
-    api_base = os.getenv("LLM_API_BASE", "http://localhost:1234/api/v1").rstrip("/")
-    if api_base.endswith("/v1") and not api_base.endswith("/api/v1"):
-        api_base = api_base[:-3] + "/api/v1"
+    api_base = os.getenv("LLM_API_BASE", "http://localhost:1234/").rstrip("/")
+    api_base = api_base + "/api/v1/"
     
     api_key = os.getenv("LLM_API_KEY", "lm-studio")
     model = os.getenv("LLM_MODEL", "default")
@@ -107,7 +106,6 @@ def main():
         reasoning = "none"
 
     # Handle the --list-models argument
-    import sys
     if len(sys.argv) > 1 and sys.argv[1] == "--list-models":
         client = httpx.Client(base_url=api_base, timeout=10.0)
         models = get_available_models(client, api_key)
@@ -267,7 +265,7 @@ def main():
 
             # Send streaming request
             headers = {"Authorization": f"Bearer {api_key}"}
-            with client.stream("POST", "/chat", json=payload, headers=headers) as response:
+            with client.stream("POST", "chat", json=payload, headers=headers) as response:
                 if response.status_code != 200:
                     detail_msg = ""
                     try:
